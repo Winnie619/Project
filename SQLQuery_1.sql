@@ -106,3 +106,34 @@ WHERE dea.continent is not null
 
 
 
+-- Tableau Visualization 
+
+-- 1.
+SELECT SUM(cast(new_cases as float)) as total_cases , SUM(new_deaths) as total_deaths, SUM(new_deaths)/SUM(cast(new_cases as float))*100 as DeathPercentage
+FROM Project..CovidDeaths
+WHERE continent is not null
+ORDER BY 1,2
+
+-- 2.
+SELECT Location, SUM(cast(new_deaths as int)) as TotaLDeathCount 
+FROM Project..CovidDeaths
+WHERE continent is null
+and location not in ('world', 'European Union', 'International','Upper middle income','High income','Lower middle income','Low income')
+GROUP BY Location
+ORDER BY TotaLDeathCount desc 
+
+-- 3. 
+SELECT Location, Population, MAX(total_cases) as HighestInfectionCount , (MAX(total_cases)/population)*100 as PercentPopulationInfected
+FROM Project..CovidDeaths
+GROUP BY Location, Population
+ORDER BY PercentPopulationInfected desc
+
+-- 4.
+SELECT Location, Population, date, MAX(total_cases) as HighestInfectionCount , (MAX(total_cases)/population)*100 as PercentPopulationInfected
+FROM Project..CovidDeaths
+GROUP BY Location, Population, date
+ORDER BY PercentPopulationInfected desc
+
+
+
+
