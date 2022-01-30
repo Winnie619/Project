@@ -1,0 +1,321 @@
+---
+title: "406 final project"
+author: "Jacqueline, Wenna, Ivy, Rita"
+date: "12/6/2021"
+output: pdf_document
+sansfont: Times New Roman
+---
+\fontsize{10}{12}
+\selectfont
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+Diabetes has become one of the largest public health problems to date. It is a chronic disease which caused more than 1.5 million deaths in 2019 as reported by WHO. This disease occurs when our body is not able to take up glucose into its cell and provide energy for our body. In other words, our body cannot effectively use insulin: a hormone which regulates blood sugar. Moreover, diabetes can also cause blindness, kidney failure, heart attacks (WHO). According ADA(American Diabetes Association), there are four types of diabetes: GDM(Gestational Diabetes), Type I diabetes, Type II diabetes and rare diabetes due to other causes. Type II diabetes is the most comment diabetes type, 95% of people have this diabetes which results from one's body have ineffective use of insulin. GDM occurs during pregnancy and it is hyperglycaemia with blood glucose values above normal level. Type I diabetes is also known as insulin-dependent which requires daily insulin intake. Majority of people who had type I diabetes are live in high-income countries and there were 9 million people in the world had it in 2007. Although the chance of getting diabetes for women and men is equal, females tend to have serious consequences by diabetes than males. 
+
+In previous studies, diabetes for females have worse outcomes than male. Pre-menopausal females with diabetes have approximately 50% more chance to die from heart disease than males. Moreover, women also have higher risk to have blindness problem than men due to the diabetic retinopathy, and females often get gestational diabetes when they are pregnant. In addition, women with diabetes have higher death rate related to heart attack than non diabetes women. Studying what factors affect female diabetes can help people to build a better understanding of it and reduce the incidence rate. In order to get a deeper understanding on women diabetes, our group selected the female diabetes data set from Kaggle and it is originally from the National Institute of Diabetes and Digestive and Kidney Diseases. All patients in this study are females who are at least 21 years old of Pima Indian heritage. 
+
+In this study, we aim to predict whether a female patient has diabetes based on six given diagnostic measurements: the numbers of pregnancy, glucose level, blood pressure, BMI, diabetes pedigree function and age. Since the outcome is categorical (diabetes, non diabetes), three models (Random forest, logistic regression and KNN model)would be applied to check which one has the best accuracy on predicting the outcome. Comparison and limitations would be discuss in the final part of this research.
+
+## EDA(Explanatory Data Analysis)
+```{r include=FALSE}
+# loading libraries
+library(plyr)
+library(ggplot2)
+library(tidyverse)
+library(repr)
+library(dplyr)
+library(rsample)
+library(data.table)
+setwd("~/Desktop/project--406_GroupProject-")
+diabetes <- read.csv("diabetes_full.csv")
+nrow(diabetes)
+```
+Before directly digging into the data, it is important to do some initial investigation to better understand the data. To start with, we have a brief look at the whole data set, which have total 768 observations,9 variables. There are 500 of the patients who are not diabetes and 268 of them have diabetes. 
+
+```{r echo=FALSE}
+head(diabetes)
+```
+
+In order to use the data to predict diabetes for female, we want to make sure our data set is clean and no multi-correlation between each predicted variables. We first used a correlation matrix to see if there exists multi-correlation between predicted variables. The orange color means the two variables are highly positively correlated, and blue color means the two variables are highly negatively correlated. Fortunately, there are not dark orange or blue color for our predicted variables, and no any calculated correlation above 0.55, which means there is not multi-correlation for our predicted variable. To be more precise, a scatterplot matrix was applied to check the relationship between variables. From the graphs below, we realized there were many zero values appearing in scatterplots that have related to Blood Pressure, Skin Thickness, Insulin and BMI. Since these values should not be zero in real life cases, we need to consider whether we need to remove the entire variable or replace the zero values with the variable mean when doing the data cleaning. 
+
+```{r include=FALSE}
+diabetes$Outcome = as.factor(diabetes$Outcome)
+levels(diabetes$Outcome)
+```
+```{r echo=FALSE}
+#correlation matrix
+library(ggcorrplot)
+correlations <- cor(diabetes[,1:8])
+ggcorrplot(correlations, method="square",type = "full",lab = TRUE,lab_size=3.2,
+           outline.col = "white",
+           ggtheme = ggplot2::theme_gray,
+           colors = c("#6D9EC1", "white", "#E46726"),
+           title = "Correlation Matrix")
+```
+
+
+```{r echo=FALSE,out.width = "95%",fig.align='center'}
+pairs(~ Pregnancies + Glucose + BloodPressure + SkinThickness + Insulin + BMI +
+        DiabetesPedigreeFunction + Age,
+      data = diabetes,
+      main = "Scatterplot for predicted variable",
+      col= c("#00AFBB", "#FC4E07")[diabetes$Outcome], pch = 16,cex=0.3,
+      lower.panel=NULL)
+```
+
+To take a deeper look at our predicted variables. We used density distribution of each variable broke down by diabetes or not. This density distribution matrix can help us see the separation between non-diabetes and diabetes, and understand the overlap between the two outcome. After plotting the density matrix, the outcome value are quite overlap with each other except for Pregnancies, Glucose, and Age, so it is hard to predict female diabetes for only one or two variables.
+```{r echo=FALSE,out.width = "65%",fig.align='center'}
+#Density plot
+library(AppliedPredictiveModeling)
+library(caret)
+transparentTheme(trans = .8)
+featurePlot(x = diabetes[,1:8], 
+            y = diabetes$Outcome,
+            plot = "density", 
+            col = c("#00AFBB", "#FC4E07"),
+            main = "Overlap Density plots for predicted variables",
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")), 
+            adjust = 1.5, 
+            auto.key=list(columns=2),
+            pch = "|")
+```
+
+## Method, Result and Anylsis
+
+### Method
+In order to find the best model to predict diabetes from the given diagnostic measurements, our group chose three approaches that learn in Stat 406 this term: Random forest, Logistic regression and KNN model Algorithm. Before actually doing the machine learning, we need to make sure the data is well prepared and clean.
+
+**Data preparation:**
+From the EDA section, we realized there exists zero values in several predicted variables. After calculated the zero values among the predicted variables, we chose to omit the variables that have zero values excess 20% of counts of that variable. Skin Thickness and Insulin were found to have too many zero values which are 227 and 374 respectively, thus these two variables had been remove from the original data set. The remaining variables do not excess the 20% rule, hence we use the variable mean to replace the zeros in each variable.
+
+```{r include=FALSE}
+colSums(diabetes !=0)
+diabetes[c("SkinThickness","Insulin")] <- list(NULL)
+library(R.utils)
+#change na to the colmn mean
+diabetes$Glucose[isZero(diabetes$Glucose)]<-mean(diabetes$Glucose,na.rm=TRUE)
+diabetes$BloodPressure[isZero(diabetes$BloodPressure)]<-mean(diabetes$BloodPressure,na.rm=TRUE)
+diabetes$BMI[isZero(diabetes$BMI)]<-mean(diabetes$BMI,na.rm=TRUE)
+diabetes$DiabetesPedigreeFunction[isZero(diabetes$DiabetesPedigreeFunction)]<-mean(diabetes$DiabetesPedigreeFunction,na.rm=TRUE)
+diabetes$Outcome = as.factor(diabetes$Outcome)
+levels(diabetes$Outcome)
+```
+
+**Data Split:**
+In order to start the machine learning, we need to split our data into training set and testing set. There are 768 experiment units in our data set, we split 75% as training data and the rest 25% as test data. After finishing the data cleaning and splitting, three models were applied and we would analyze each model separately and compare the results afterward. Bagging and random forest model were applied first, followed by logistic regression and then KNN model Algorithm. 
+All the model were `set.seed(1234)` to keep the code consistence.
+```{r include=FALSE}
+#split train and test data
+set.seed(1234)
+sub1 <- diabetes[diabetes$Outcome ==1,]
+outcome1 <- sample(rep(1:4, each = 67))
+tr1 <- sub1[outcome1 != 2, ]
+te1 <- sub1[outcome1 == 2, ]
+sub0 <- diabetes[diabetes$Outcome ==0,]
+outcome0 <- sample(rep(1:4, each =125))
+tr0 <- sub0[outcome0 != 2, ]
+te0 <- sub0[outcome0 == 2, ]
+
+train <- rbind(tr1,tr0)
+test <- rbind(te1,te0)
+```
+
+### Bagging & Random forest Analysis
+```{r include=FALSE}
+
+library(randomForest)
+library(kableExtra)
+```
+
+```{r echo=FALSE,out.width = "60%",fig.align='center'}
+set.seed(1234)
+#out of bag error is 21.7%
+bag <- randomForest(Outcome~., 
+                    data = train, 
+                    mtry = ncol(train) - 1)
+bag
+
+#out of bag error is 21.35%
+rf <- randomForest(Outcome ~ ., 
+                   data = train)
+rf
+
+set.seed(1234)
+bag_pred <- predict(bag, newdata = test)
+table(bag_pred, test$Outcome)
+
+rf_pred <- predict(rf, newdata = test)
+table(rf_pred, test$Outcome)
+
+#Feature sequencing / Variable ranking by variable importance plot
+varImpPlot(rf)
+```
+A general-purpose strategy for minimising the variance of a statistical learning system is bootstrap aggregation, often known as bagging. Taking numerous training sets from the population, building a different prediction model using each training set, then averaging the resulting predictions is a natural strategy to reduce variance and boost test set accuracy of a statistical learning method. Random Forest is a Supervised Machine Learning method. that is commonly used to solve classification issues. It creates decision trees from various samples, using the majority vote for classification.
+
+We choose random sample of m predictors as split candidates from the full set of 5 predictors. By applying both bagging and random forest method to the diabetes dataset, we found that random forest (23.09%) has slightly lower OOB error than bagging (23.44%) and has smaller class error compared with bagging. Then we use the test data to measure the accuracy of these two methods. As stated by the table, random forest and bagging got 144 out of 192 and 142 out of 192 separately, suggesting 75% accuracy for random forest and 73.96% accuracy for bagging. After that, we also do the variable importance plot.It clearly shows that Glucose is the most important variable.
+
+### Logistic Regression
+After exploring each variable, some variables shouldn’t have zero since it doesn’t make sense. For example, the age of a female can not be zero. Glucose, BloodPressure, SkinThickness Insulin, BMI, and DiabetesPedigreeFunction also shouldn’t have zero value since zero means the person is dead. SkinThickness(227) and Insulin(374) has too many zero values, so we decided to remove these two variables. (If the 20% the data includes zero value, we will omit the variable) 
+
+**Build Logistic model:**
+Logistic regression is a classification technique that can be used to predict a qualitative response which is “Outcome” in our data. Logistic regression can estimate the probability of “Outcome” given a particular explanatory variable.
+ 
+**Fit and summary the logistic model: **
+```{r echo=FALSE}
+model<-glm(Outcome~.,data=train,family = "binomial")
+summary(model)
+```
+Summary returns the estimate, standard errors, z-score, and p-values on each of the coefficients. Only the P-value of age is larger than 5%, therefore age is not significant. In this case, we re-fit the model without age. 
+```{r echo=FALSE}
+model2 <- glm(Outcome ~ Pregnancies + Glucose + BloodPressure +
+                     BMI+DiabetesPedigreeFunction, data=train,family = "binomial")
+summary(model2)
+```
+This time all the p-values are smaller than 5%, which means the variables are all significant.             
+The only difference between the two models is to include Age or not. If the model and model2 don't have a significant difference, we can simply use the model with fewer variables.
+ 
+**Test the difference between model and model2:**
+```{r echo=FALSE}
+anova(model,model2,test="Chisq")
+```
+The p-value is 0.1233 > 0.05,the difference of model and model2 is not significant. For an easier explain model, we choose model2 with fewer variables.      
+Significance test can be applied here to show that model2 is the right one to be used to predict the probability.  
+```{r echo=FALSE}
+anova(object = model2,test = "Chisq")
+```
+As the variables are added to model2 one by one from the first to the last, model2 finally passes the significance test, indicating that the model composed of the above variables is meaningful and correct. By chi-square test, all p-values are smaller than 5%, so the model is significant.
+ 
+**Prediction accuracy calculate:**
+To assess the predictive ability of the model, use model2 to predict the probability of Outcome for the test dataset. (P(y=1|X))
+```{r include=FALSE}
+probabilities <- model2 %>% predict(test, type = "response")
+```
+
+Set the decision boundary at 0.5, if the probability is larger than 0.5 the Outcome is 1,otherwise it is 0.
+```{r echo=FALSE}
+predicted.classes <- ifelse(probabilities > 0.5, 1,0)
+
+mytable<-table(test$Outcome, predicted.classes)
+prop.table(mytable, 1)
+```
+From the table, instances on the diagonals are where you get the correct classification, and off the diagonals are where you make mistakes. For people who have diabetes, the prediction accuracy is 0.4776119. The prediction for people with diabetes (1) is unsatisfactory. For people who don't have diabetes, the prediction accuracy is 0.9120000. The prediction for people without diabetes (0) is very accurate. 
+```{r echo=FALSE}
+mean(predicted.classes == test$Outcome)
+```
+For the test dataset, the accuracy of model2 is 0.7604167, which is good enough.
+ 
+**ROC graph:**
+As the last step, we are going to plot the ROC curve and calculate the area under the curve (AUC) which are typical performance measurements for a binary classifier. The ROC is a curve generated by plotting the true positive rate (TPR) against the false positive rate (FPR) at various threshold settings while the AUC is the area under the ROC curve.  AUC is closer to 1, which means a model with good predictive ability. 
+```{r include=FALSE}
+ library(pROC)
+ roc_curve <- roc(test$Outcome,probabilities)
+ names(roc_curve)
+ x <- 1-roc_curve$specificities
+ y <- roc_curve$sensitivities
+```
+```{r echo=FALSE,out.width = "55%",fig.align='center'}
+ library(ggplot2)
+ p <- ggplot(data = NULL, mapping = aes(x= x, y = y))
+ p + geom_line(colour = 'red') +geom_abline(intercept = 0, slope = 1) + annotate('text', x = 0.4, y = 0.5, label =paste('AUC=',round(roc_curve$auc,2)))+ labs(x = 'false positive rate',y = 'true positive rate', title = 'ROC Curve')
+```
+AUC = 0.82, which is relatively high enough. The abscissa and ordinate of the curve respectively represent the false positive rate(Probability that it is classified to have diabetes and which actually have diabetes) and true positive rate ((Probability that it is classified to have diabetes and which is actually don't have diabetes))
+We can use this logistic regression model to predict whether the female has diabetes or not given the explanatory We can use this logistic regression model to predict whether the female has diabetes or not given the explanatory variables. The result is $log(\frac{p}{1-p} = -9.541003108 + 0.163031348 \times x_1 + 0.038320522 \times x_2 - 0.005230586 \times x_3 + 0.098166424 \times x_4 + 1.069828393 \times x_5 )$. P is the probability for diabetes positive.
+
+### KNN modeling 
+
+KNN (K Nearest Neighbor) is a Supervised Machine Learning Algorithm that can be used for both classification and regression problems. Since our main approach is to predict whether the given data is diabetes or not, KNN is easy to implement, since there are only two parameters required to implement KNN. Moreover, instead of learning things from the training data, KNN memorizes the training data set which makes the algorithm faster than any others.
+
+Compare to the two modeling methods we used previously, data set must be normalized before actually apply the KNN model algorithm. Since distance play a vital role for KNN, it is necessary to normalize data to avoid incorrect classification. We wrote a for-loop using the formula $\frac{x-min(x)}{max(x)-min(x)}$ to normalize all the variables except for the Outcome. Data splicing was then applied after normalization (same as for other two method, the ratio for training set and testing set is 75:25).
+
+```{r include=FALSE}
+#Normalization
+normalize <- function(x) {
+   return ((x - min(x)) / (max(x) - min(x))) }
+
+diabetes.subset.n <- as.data.frame(lapply(diabetes[,2:6], normalize))
+```
+
+To start doing KNN, we first want to select the best value of K using `knn.cv()` as in the lecture slide. From the CV plot below, We saw K=8 and K=18 had the lowest error. Since higher K means smoother the model, we chose K=18. Hence we built the KNN model with K=18 on the training data set to predict the testing set (r code is attached below). Then we evaluated the accuracy to be 76.04167%.
+```{r include=FALSE}
+library(class)
+#data split
+set.seed(1234)
+dat.d <- sample(1:nrow(diabetes.subset.n),size=nrow(diabetes.subset.n)*0.75,replace = FALSE)
+#random selection of 75% data.
+train.d <- diabetes[dat.d,] # 75% training data
+test.d <- diabetes[-dat.d,] # remaining 25% test data
+#Creating seperate dataframe for 'Creditability' feature which is our target.
+train.d_labels <- diabetes[dat.d,7]
+test.d_labels <-diabetes[-dat.d,7]
+```
+```{r echo=FALSE,out.width="55%"}
+set.seed(12345)
+k_max <- 30
+error <- double(k_max)
+for (ii in 1:k_max) {
+  pk <- knn.cv(diabetes[,-7], diabetes[,7], k = ii)
+  error[ii] <- mean(pk != diabetes[,7])
+}
+plot(1:k_max, error,type="l",main="CV Plot",xlab="K- Value",ylab="Error")
+```
+```{r}
+library(class)
+knn.20 <- knn(train=train.d, test=test.d, cl=train.d_labels, k=20)
+ACC.20 <- 100 * sum(test.d_labels == knn.20)/NROW(test.d_labels)
+ACC.20
+```
+Confusion matrix was also applied to confirm our calculated accuracy is precised. A overall accuracy rate's 95% confidence interval was also given (0.6937, 0.8189). Hence we are 95% confident that the KNN model's prediction accracy would fall between 69.37% and 81.89%. Moreover, Type 1 was calculated as $\frac{36}{107+36+10+39}=18.75$%, which means not many changes or interventions are made that are unnecessary. Type 2 was calculated as $\frac{10}{107+36+10+39}=5.2$% which means we have a small error of omission.
+```{r include=FALSE}
+library(caret)
+```
+```{r echo=TRUE}
+confusionMatrix(table(knn.20 ,test.d_labels))
+```
+
+In addition, a error rate calculation function was wrote to calculate training error and testing error on the KNN algorithm. The training and testing error were 23% and 23.43% respectively. We have both low training error and testing error which means the model is learning and don't have any overfitting problems.
+```{r echo=TRUE}
+#error rate calculation
+cal_error <- function(pred.value, true.value){
+ return(mean(true.value!=pred.value)) 
+}
+```
+
+```{r echo=TRUE}
+set.seed(1234)
+pred.train <- knn(train = train.d, test = train.d, cl=train.d_labels, k=20)
+knn_train_err <- cal_error(pred.value = pred.train, true.value = train.d_labels)
+knn_train_err
+
+#test error
+pred.test <- knn(train= train.d, test=test.d, cl=train.d_labels,k=20)
+knn_test_err <- cal_error(pred.value = pred.test, true.value = test.d_labels)
+knn_test_err
+```
+
+### Accuracy in Total
+
+To sum up, the three models we used all had a good result in predicting the outcome. We have 75% of accuracy using random forest model, and 76.04% accuracy using logistic regression, and 76.04% of accuracy using KNN model. 
+
+## Discussion and Result
+
+From our methods in the study, we built servers models to predict the women diabetes based on six variables. Logistic Regression model and KNN model have a higher accuracy which all had a 76.04% accuracy than Random forest which had 75%. However, different models have their own strengths and limitation. 
+
+Random forest is a technique that is used in modelling predictions analysis. It contains many decision trees, each representing a unique instance of the random forest's classification of data input. One of the most significant advantages of random forest is its adaptability. It can be used for both regression and classification tasks, and it's simple to see how much weight it gives to the input features. The classifier won’t overfit the model as long as there are enough trees is another important characeristic for random forest compared with other machine learning method.But it still has its limitation,
+a large number of trees can slow down and render the algorithm ineffective for real-time predictions. The algorithms are fast to train but slow to predict once they have been trained. A more accurate prediction necessitates more trees, resulting in a slower model.
+
+The top advantage of using KNN model is the new adding data will not impact the model accuracy we had in the algorithm. In addition, KNN model was easy to implement since it does not require any model and parameters assumptions. Moreover, instead of learning the training data, it actually stores the training data set and learns from it at the time that make real time prediction. However, there is still some drawback of this model. Since KNN model need normalization and scaling, we do a new data splitting for this method instead of using the split data set for the other two model. This might cause some bias when comparing the accuracy with the two other model. Moreover, if our data set become larger, the calculation for the K value will become longer which will degrades the performance of KNN algorithm. In addition, KNN model is sensitive to noisy data and outliers. If the new data have zero values as what we had with the original data, we need to manually impute the missing values.
+
+The top advantage of using logistic regression is the model is straightforward, easy to understand, and convenient to observe sample probability scores. Compared with KNN and random forest, logistic regression has a fast calculation speed, low computational cost, and the parameter is easy to understand and implement. However, this model also has certain shortcomings. For example, the prediction result is the shape of "S," which is non-linear. With the log(odds) value changing at two tails, the slope is slight, so the marginal value is small. However, The change of intermediate probability varies is very sensitive. As a result, the influence of variable changes in many intervals on the target probability is indistinguishable. Besides, the logistic model is prone to under-fitting and low precision. In our case, the prediction for people with diabetes is unsatisfactory. The reason may be that the model is simple, which is difficult to fit the actual complex distribution of the data.
+
+
+### Conclusion
+These three models have the nearly same accuracy. To improve the accuracy in the future analysis, we may try using K fold validation method to split the data set instead of using 75:25 ratio to split testing and training data set. Moreover, we may need more experiments units or consider more variables into consideration. Since there are much more limitation when it comes to real life problem. For the random forest, we only have 5 explanatory variables, using more variables would make the prediction more accurate. For the logistics regression model, we ignore the correlation between the variables, which would lead to accuracy loss. In addition, we can't use Logistic regression to select the variables without stepwise regression. We apply normalization and create different train and test data in KNN model,which would cause discrepancy to the results.
+
+
+
+
+
